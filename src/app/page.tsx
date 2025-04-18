@@ -193,7 +193,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-4 md:p-8 bg-gray-50">
-      <h1 className="text-3xl font-bold mb-8 text-center text-gray-800 w-full">MCP Client (Next.js + OpenAI)</h1>
+      <h1 className="text-3xl font-bold mb-8 text-center text-gray-800 w-full">Simple MCP Client</h1>
 
       <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/3 flex flex-col gap-6 order-2 lg:order-1">
@@ -338,7 +338,7 @@ export default function Home() {
                     className={`flex ${justification} mb-2`}
                   >
                     <div
-                      className={`p-3 rounded-lg max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl whitespace-pre-wrap shadow-sm ${roleClass}`}
+                      className={`p-3 rounded-lg max-w-sm break-words md:max-w-md lg:max-w-lg xl:max-w-xl whitespace-pre-wrap shadow-sm ${roleClass}`}
                     >
                       {contentToShow}
                     </div>

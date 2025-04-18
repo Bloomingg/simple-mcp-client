@@ -14,7 +14,7 @@ if (!process.env.OPENAI_API_KEY) {
 }
 
 const openai = new OpenAI({
-    baseURL: "https://api.siliconflow.cn/v1",
+    // baseURL: "https://api.siliconflow.cn/v1",
     timeout: 300 * 1000, // 120 seconds request timeout
 }); // API key is automatically picked up from process.env.OPENAI_API_KEY
 
@@ -35,35 +35,35 @@ async function initializeMcpClient(
     // Parse environment variables first
     let parsedEnv: { [key: string]: string } = {};
     try {
-      parsedEnv = JSON.parse(serverEnvString || '{}');
-      if (typeof parsedEnv !== 'object' || parsedEnv === null || Array.isArray(parsedEnv)) {
-        throw new Error('Environment variables must be a JSON object.');
-      }
-      for (const key in parsedEnv) {
-        if (typeof parsedEnv[key] !== 'string') {
-          parsedEnv[key] = String(parsedEnv[key]);
+        parsedEnv = JSON.parse(serverEnvString || '{}');
+        if (typeof parsedEnv !== 'object' || parsedEnv === null || Array.isArray(parsedEnv)) {
+            throw new Error('Environment variables must be a JSON object.');
         }
-      }
+        for (const key in parsedEnv) {
+            if (typeof parsedEnv[key] !== 'string') {
+                parsedEnv[key] = String(parsedEnv[key]);
+            }
+        }
     } catch (e: any) {
-      // Re-throw with a more specific message for the chat API context
-      throw new Error(`Invalid JSON for Environment Variables in chat request: ${e.message}`);
+        // Re-throw with a more specific message for the chat API context
+        throw new Error(`Invalid JSON for Environment Variables in chat request: ${e.message}`);
     }
 
     // Clean process.env
     const cleanProcessEnv = Object.entries(process.env).reduce((acc, [key, value]) => {
-      if (value !== undefined) {
-        acc[key] = value;
-      }
-      return acc;
+        if (value !== undefined) {
+            acc[key] = value;
+        }
+        return acc;
     }, {} as { [key: string]: string });
 
     let absolutePath = path.resolve(serverScriptPath);
     if (!fs.existsSync(absolutePath)) {
         const projectRootPath = path.resolve(process.cwd(), serverScriptPath);
-        if(fs.existsSync(projectRootPath)) {
+        if (fs.existsSync(projectRootPath)) {
             absolutePath = projectRootPath;
         } else {
-             throw new Error(`Server script not found at ${absolutePath} or ${projectRootPath}`);
+            throw new Error(`Server script not found at ${absolutePath} or ${projectRootPath}`);
         }
     }
     if (!fs.statSync(absolutePath).isFile()) {
@@ -77,9 +77,9 @@ async function initializeMcpClient(
     else throw new Error('Server script must be a .js or .py file');
 
     console.log(`[Chat API] Initializing MCP client: command='${command}', script='${absolutePath}', env=${JSON.stringify(parsedEnv)}`);
-    const transport = new StdioClientTransport({ 
-        command, 
-        args: [absolutePath], 
+    const transport = new StdioClientTransport({
+        command,
+        args: [absolutePath],
         env: { ...cleanProcessEnv, ...parsedEnv }
     });
     const mcpClient = new Client({ name: 'mcp-nextjs-chat-api', version: '1.0.0' });
@@ -124,9 +124,9 @@ export async function POST(request: Request) {
         };
 
         const sendError = (errorMessage: string) => {
-             console.error(`[Chat API Stream] Sending error: ${errorMessage}`);
-             sendMessage({ type: 'error', error: errorMessage });
-             writer.close(); // Close stream on error
+            console.error(`[Chat API Stream] Sending error: ${errorMessage}`);
+            sendMessage({ type: 'error', error: errorMessage });
+            writer.close(); // Close stream on error
         }
 
         // Start processing asynchronously, don't await the whole loop here
@@ -146,7 +146,8 @@ export async function POST(request: Request) {
                     console.log(`[Chat API Stream] OpenAI Call Iteration: ${iterationCount}`);
 
                     const response = await openai.chat.completions.create({
-                        model: "deepseek-ai/DeepSeek-V3",
+                        model: "gpt-4o",
+                        // model: "deepseek-ai/DeepSeek-V3",
                         messages: currentMessages,
                         tools: availableTools.length > 0 ? availableTools : undefined,
                         tool_choice: availableTools.length > 0 ? "auto" : undefined,
@@ -157,35 +158,35 @@ export async function POST(request: Request) {
                     sendMessage({ type: 'message', message: responseMessage }); // Send assistant message chunk
 
                     const toolCalls = responseMessage.tool_calls;
-                     console.log(`[Chat API Stream] Iteration ${iterationCount}: OpenAI tool calls requested: ${JSON.stringify(toolCalls)}.`);
+                    console.log(`[Chat API Stream] Iteration ${iterationCount}: OpenAI tool calls requested: ${JSON.stringify(toolCalls)}.`);
 
                     if (toolCalls) {
                         const toolResponses: ChatMessage[] = [];
                         for (const toolCall of toolCalls) {
-                             const functionName = toolCall.function.name;
-                             let functionArgs: any;
-                             let toolResponse: ChatMessage;
-                             try {
-                                 functionArgs = JSON.parse(toolCall.function.arguments);
-                             } catch (parseError: any) {
-                                 console.error(`[Chat API Stream] Error parsing arguments for tool ${functionName}:`, parseError);
-                                 toolResponse = { tool_call_id: toolCall.id, role: "tool", content: `Error: Invalid arguments provided by LLM - ${parseError.message}` };
-                                 toolResponses.push(toolResponse);
-                                 sendMessage({ type: 'message', message: toolResponse }); // Send tool error chunk
-                                 continue;
-                             }
-                             console.log(`[Chat API Stream] Executing tool: ${functionName} with args:`, functionArgs);
-                             try {
-                                 const toolResult = await mcpClient.callTool({ name: functionName, arguments: functionArgs });
-                                 console.log(`[Chat API Stream] Tool ${functionName} executed.`);
-                                 const contentString = typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content);
-                                 toolResponse = { tool_call_id: toolCall.id, role: "tool", content: contentString };
-                             } catch (toolError: any) {
-                                 console.error(`[Chat API Stream] Error executing tool ${functionName}:`, toolError);
-                                 toolResponse = { tool_call_id: toolCall.id, role: "tool", content: `Error executing tool: ${toolError.message || 'Unknown error'}` };
-                             }
-                             toolResponses.push(toolResponse);
-                             sendMessage({ type: 'message', message: toolResponse }); // Send tool result/error chunk
+                            const functionName = toolCall.function.name;
+                            let functionArgs: any;
+                            let toolResponse: ChatMessage;
+                            try {
+                                functionArgs = JSON.parse(toolCall.function.arguments);
+                            } catch (parseError: any) {
+                                console.error(`[Chat API Stream] Error parsing arguments for tool ${functionName}:`, parseError);
+                                toolResponse = { tool_call_id: toolCall.id, role: "tool", content: `Error: Invalid arguments provided by LLM - ${parseError.message}` };
+                                toolResponses.push(toolResponse);
+                                sendMessage({ type: 'message', message: toolResponse }); // Send tool error chunk
+                                continue;
+                            }
+                            console.log(`[Chat API Stream] Executing tool: ${functionName} with args:`, functionArgs);
+                            try {
+                                const toolResult = await mcpClient.callTool({ name: functionName, arguments: functionArgs });
+                                console.log(`[Chat API Stream] Tool ${functionName} executed.`);
+                                const contentString = typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content);
+                                toolResponse = { tool_call_id: toolCall.id, role: "tool", content: contentString };
+                            } catch (toolError: any) {
+                                console.error(`[Chat API Stream] Error executing tool ${functionName}:`, toolError);
+                                toolResponse = { tool_call_id: toolCall.id, role: "tool", content: `Error executing tool: ${toolError.message || 'Unknown error'}` };
+                            }
+                            toolResponses.push(toolResponse);
+                            sendMessage({ type: 'message', message: toolResponse }); // Send tool result/error chunk
                         }
                         currentMessages.push(...toolResponses);
                         // Loop continues
@@ -196,24 +197,24 @@ export async function POST(request: Request) {
                 } // End while loop
 
                 if (iterationCount >= MAX_TOOL_ITERATIONS) {
-                     console.warn(`[Chat API Stream] Reached max tool call iterations (${MAX_TOOL_ITERATIONS}).`);
-                     const warningMessage: ChatMessage = { role: "assistant", content: `(Warning: Reached maximum tool call iterations (${MAX_TOOL_ITERATIONS}).)` };
-                     sendMessage({ type: 'message', message: warningMessage });
+                    console.warn(`[Chat API Stream] Reached max tool call iterations (${MAX_TOOL_ITERATIONS}).`);
+                    const warningMessage: ChatMessage = { role: "assistant", content: `(Warning: Reached maximum tool call iterations (${MAX_TOOL_ITERATIONS}).)` };
+                    sendMessage({ type: 'message', message: warningMessage });
                 }
 
-                 // Signal completion
-                 sendMessage({ type: 'done' });
+                // Signal completion
+                sendMessage({ type: 'done' });
 
             } catch (error: any) {
                 sendError(error.message || 'An internal server error occurred during stream processing');
             } finally {
-                 // Ensure MCP client is closed in the async block
-                 if (mcpClient) {
+                // Ensure MCP client is closed in the async block
+                if (mcpClient) {
                     try { await mcpClient.close(); console.log("[Chat API Stream] MCP client closed."); }
                     catch (closeError) { console.error('[Chat API Stream] Error closing MCP client:', closeError); }
-                 }
-                 // Close the stream writer
-                 try { writer.close(); } catch {} 
+                }
+                // Close the stream writer
+                try { writer.close(); } catch { }
             }
         })(); // Immediately invoke the async function
 
@@ -227,8 +228,8 @@ export async function POST(request: Request) {
         });
 
     } catch (error: any) {
-         // Catch errors during initial request processing (before stream starts)
-         console.error('[Chat API] Error setting up stream:', error);
-         return NextResponse.json({ error: error.message || 'Failed to set up stream' }, { status: 500 });
+        // Catch errors during initial request processing (before stream starts)
+        console.error('[Chat API] Error setting up stream:', error);
+        return NextResponse.json({ error: error.message || 'Failed to set up stream' }, { status: 500 });
     }
 } 
