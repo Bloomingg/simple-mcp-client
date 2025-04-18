@@ -75,17 +75,27 @@ async function initializeAllMcpClients(
             if (!fs.statSync(absolutePath).isFile()) { throw new Error('Path must be a file'); }
             const fileExtension = path.extname(absolutePath);
             let command: string;
-            if (fileExtension === '.js') command = process.execPath;
-            else if (fileExtension === '.py') command = os.platform() === 'win32' ? 'python' : 'python3';
-            else throw new Error('Script must be .js or .py');
+            let args: string[] = [absolutePath]; // Default args is just the script path
+
+            if (fileExtension === '.js') {
+                command = process.execPath; // Node executable
+            } else if (fileExtension === '.py') {
+                command = os.platform() === 'win32' ? 'python' : 'python3'; // Python executable
+            } else if (fileExtension === '.sh') {
+                // For shell scripts, the command *is* the script path itself.
+                command = absolutePath;
+                args = []; // Transport doesn't need the script path as an arg when it's the command
+            } else {
+                throw new Error(`Unsupported script extension: ${fileExtension}. Must be .js, .py, or .sh`);
+            }
 
             const cleanProcessEnv = Object.entries(process.env).reduce((acc, [key, value]) => {
                 if (value !== undefined) { acc[key] = value; }
                 return acc;
             }, {} as { [key: string]: string });
 
-            console.log(`[Chat Init] Connecting to ${config.name}...`);
-            transport = new StdioClientTransport({ command, args: [absolutePath], env: { ...cleanProcessEnv, ...parsedEnv } });
+            console.log(`[Chat Init] Connecting to ${config.name}: cmd='${command}', args=${JSON.stringify(args)}`);
+            transport = new StdioClientTransport({ command, args, env: { ...cleanProcessEnv, ...parsedEnv } });
             // Use unique client name based on server config name/id
             mcpClient = new Client({ name: `mcp-client-chat-${config.name}-${config.id.substring(0, 4)}`, version: '1.0.0' });
 

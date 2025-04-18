@@ -57,9 +57,23 @@ async function getServerTools(config: ServerConfig): Promise<ServerToolsResult> 
     if (!fs.statSync(absolutePath).isFile()) { throw new Error('Path must be a file'); }
     const fileExtension = path.extname(absolutePath);
     let command: string;
-    if (fileExtension === '.js') { command = process.execPath; }
-    else if (fileExtension === '.py') { command = os.platform() === 'win32' ? 'python' : 'python3'; }
-    else { throw new Error('Script must be .js or .py'); }
+    let args: string[] = [absolutePath]; // Default args is just the script path
+
+    if (fileExtension === '.js') { 
+        command = process.execPath; // Node executable
+    } else if (fileExtension === '.py') { 
+        command = os.platform() === 'win32' ? 'python' : 'python3'; // Python executable
+    } else if (fileExtension === '.sh') {
+        // For shell scripts, the command *is* the script path itself.
+        // The OS will use the shebang line (e.g., #!/bin/sh) to execute it.
+        // No additional arguments needed by default for the transport.
+        command = absolutePath;
+        args = []; // Transport likely doesn't need the script path as an arg when it's the command
+    } else {
+        // Consider if other extensions should be treated as directly executable (e.g., no extension on Linux/macOS)
+        // For now, restrict to known types.
+        throw new Error(`Unsupported script extension: ${fileExtension}. Must be .js, .py, or .sh`);
+    }
 
     // Filter process.env
     const cleanProcessEnv = Object.entries(process.env).reduce((acc, [key, value]) => {
@@ -67,10 +81,10 @@ async function getServerTools(config: ServerConfig): Promise<ServerToolsResult> 
       return acc;
     }, {} as { [key: string]: string });
 
-    console.log(`[Server Info API] Connecting to ${config.name}: cmd='${command}', script='${absolutePath}'`);
+    console.log(`[Server Info API] Connecting to ${config.name}: cmd='${command}', script='${absolutePath}', args=${JSON.stringify(args)}`);
 
     // Initialize & Connect
-    transport = new StdioClientTransport({ command, args: [absolutePath], env: { ...cleanProcessEnv, ...parsedEnv } });
+    transport = new StdioClientTransport({ command, args, env: { ...cleanProcessEnv, ...parsedEnv } });
     mcpClient = new Client({ name: `mcp-client-info-${config.name}`, version: '1.0.0' });
 
     const connectPromise = mcpClient.connect(transport);
