@@ -5,123 +5,126 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-export async function POST(request: Request) {
+// Type matching frontend definition
+interface ServerConfig {
+  id: string;
+  name: string;
+  path: string;
+  env: string;
+}
+
+interface ToolInfo {
+  name: string;
+  description?: string;
+  inputSchema: any;
+}
+
+interface ServerToolsResult {
+    serverName: string;
+    tools: ToolInfo[];
+    status: 'connected' | 'error';
+    error?: string;
+}
+
+// Refactored helper to connect and get tools for ONE server
+async function getServerTools(config: ServerConfig): Promise<ServerToolsResult> {
   let mcpClient: Client | null = null;
   let transport: StdioClientTransport | null = null;
 
   try {
-    const body = await request.json();
-    const serverScriptPath = body.serverPath as string;
-    const serverEnvString = body.serverEnv as string || '{}'; // Get env string, default to empty object
-
-    if (!serverScriptPath) {
-      return NextResponse.json({ error: 'Server path is required' }, { status: 400 });
-    }
-
-    // Parse environment variables
+    const serverScriptPath = config.path;
+    const serverEnvString = config.env || '{}';
     let parsedEnv: { [key: string]: string } = {};
+
+    // Parse Env
     try {
       parsedEnv = JSON.parse(serverEnvString);
       if (typeof parsedEnv !== 'object' || parsedEnv === null || Array.isArray(parsedEnv)) {
-        throw new Error('Environment variables must be a JSON object.');
+        throw new Error('Env must be a JSON object.');
       }
-      // Optional: Ensure all values are strings, as expected by execa/spawn
       for (const key in parsedEnv) {
-        if (typeof parsedEnv[key] !== 'string') {
-          parsedEnv[key] = String(parsedEnv[key]);
-        }
+        if (typeof parsedEnv[key] !== 'string') { parsedEnv[key] = String(parsedEnv[key]); }
       }
-    } catch (e: any) {
-      return NextResponse.json({ error: `Invalid JSON format for Environment Variables: ${e.message}` }, { status: 400 });
-    }
+    } catch (e: any) { throw new Error(`Invalid JSON for Env: ${e.message}`); }
 
-    // Basic security check: Ensure path is absolute or resolve relative paths cautiously
-    // This is a simple example; real-world apps need more robust path validation/sanitization
-    let absolutePath = path.resolve(serverScriptPath); // Resolve relative paths based on server's CWD
-
+    // Validate Path & Determine Command
+    let absolutePath = path.resolve(serverScriptPath);
     if (!fs.existsSync(absolutePath)) {
-        // Try resolving relative to the project root if absolute fails (common user expectation)
         const projectRootPath = path.resolve(process.cwd(), serverScriptPath);
-        if(fs.existsSync(projectRootPath)) {
-            absolutePath = projectRootPath;
-        } else {
-             return NextResponse.json({ error: `Server script not found at ${absolutePath} or ${projectRootPath}` }, { status: 400 });
-        }
+        if(fs.existsSync(projectRootPath)) { absolutePath = projectRootPath; } 
+        else { throw new Error(`Script not found`); }
     }
-
-    if (!fs.statSync(absolutePath).isFile()) {
-         return NextResponse.json({ error: 'Server path must point to a file' }, { status: 400 });
-    }
-
+    if (!fs.statSync(absolutePath).isFile()) { throw new Error('Path must be a file'); }
     const fileExtension = path.extname(absolutePath);
     let command: string;
+    if (fileExtension === '.js') { command = process.execPath; }
+    else if (fileExtension === '.py') { command = os.platform() === 'win32' ? 'python' : 'python3'; }
+    else { throw new Error('Script must be .js or .py'); }
 
-    if (fileExtension === '.js') {
-      command = process.execPath; // Use the current Node.js executable
-    } else if (fileExtension === '.py') {
-      command = os.platform() === 'win32' ? 'python' : 'python3'; // Basic check for python command
-      // Consider adding checks or configuration for python executable path
-    } else {
-      return NextResponse.json({ error: 'Server script must be a .js or .py file' }, { status: 400 });
-    }
-
-    // Filter undefined values from process.env
+    // Filter process.env
     const cleanProcessEnv = Object.entries(process.env).reduce((acc, [key, value]) => {
-      if (value !== undefined) {
-        acc[key] = value;
-      }
+      if (value !== undefined) { acc[key] = value; }
       return acc;
     }, {} as { [key: string]: string });
 
-    console.log(`Attempting to connect using command: '${command}', script: '${absolutePath}', env: ${JSON.stringify(parsedEnv)}`);
+    console.log(`[Server Info API] Connecting to ${config.name}: cmd='${command}', script='${absolutePath}'`);
 
-    transport = new StdioClientTransport({
-      command: command,
-      args: [absolutePath],
-      env: { ...cleanProcessEnv, ...parsedEnv }, // Merge cleaned process.env and parsed env
-    });
+    // Initialize & Connect
+    transport = new StdioClientTransport({ command, args: [absolutePath], env: { ...cleanProcessEnv, ...parsedEnv } });
+    mcpClient = new Client({ name: `mcp-client-info-${config.name}`, version: '1.0.0' });
 
-    mcpClient = new Client({ name: 'mcp-nextjs-client-api', version: '1.0.0' });
-
-    // Add a timeout for the connection attempt
     const connectPromise = mcpClient.connect(transport);
     const toolsPromise = connectPromise.then(() => mcpClient?.listTools());
-
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timed out after 30 seconds')), 30000)
+      setTimeout(() => reject(new Error('Connection timed out (30s)')), 30000)
     );
-
     const toolsResult = await Promise.race([toolsPromise, timeoutPromise]) as Awaited<ReturnType<Client['listTools']>>;
-
-    console.log('Connected to server, tools:', toolsResult.tools.map(t => t.name));
+    
+    console.log(`[Server Info API] Connected to ${config.name}. Tools found: ${toolsResult.tools.length}`);
 
     // Disconnect after getting info
     await mcpClient.close();
-    mcpClient = null;
-    transport = null;
 
-    return NextResponse.json({ tools: toolsResult.tools });
+    return {
+      serverName: config.name,
+      tools: toolsResult.tools, // Assuming MCP SDK returns tools in the expected format
+      status: 'connected',
+    };
 
   } catch (error: any) {
-    console.error('Failed to connect to MCP server:', error);
-
-    // Ensure client is closed even on error
+    console.error(`[Server Info API] Failed to connect or get tools for ${config.name}:`, error);
+    // Ensure client is closed even on error during connection/listing
     if (mcpClient) {
-        try {
-            await mcpClient.close();
-        } catch (closeError) {
-            console.error('Error closing MCP client after failure:', closeError);
-        }
+      try { await mcpClient.close(); } catch (closeError) { /* ignore */ }
+    }
+    return {
+        serverName: config.name,
+        tools: [],
+        status: 'error',
+        error: error.message || 'Unknown connection error',
+    };
+  }
+}
+
+// Main POST handler
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const serverConfigs = body.servers as ServerConfig[];
+
+    if (!Array.isArray(serverConfigs) || serverConfigs.length === 0) {
+      return NextResponse.json({ error: 'Server configurations array is required' }, { status: 400 });
     }
 
-    // Determine error message
-    let errorMessage = 'Failed to connect to server.';
-    if (error instanceof Error) {
-        errorMessage = error.message;
-    } else if (typeof error === 'string') {
-        errorMessage = error;
-    }
+    // Process each server configuration concurrently
+    const resultsPromises = serverConfigs.map(config => getServerTools(config));
+    const results = await Promise.all(resultsPromises);
 
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json(results);
+
+  } catch (error: any) {
+    // Catch errors during request parsing or overall processing
+    console.error('[Server Info API] Overall processing error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to process server info request' }, { status: 500 });
   }
 } 
